@@ -997,9 +997,65 @@ def shell_command() -> None:
         " when dispatching a request."
     ),
 )
+
+def get_rules_info(rules, ignored_methods, has_domain, host_matching):
+    rows = []
+
+    for rule in rules:
+        row = [rule.endpoint, ", ".join(sorted((rule.methods or set()) - ignored_methods))]
+        if has_domain:
+            row.append(rule.host if host_matching else rule.subdomain or "")
+        row.append(rule.rule)
+        rows.append(row)
+
+    return rows
+
+def print_table(headers, rows, widths):
+    template = "  ".join(f"{{{i}:<{w}}}" for i, w in enumerate(widths))
+    for row in rows:
+        click.echo(template.format(*row))
+
+def get_headers_and_sorts(has_domain, host_matching):
+    headers = ["Endpoint", "Methods"]
+    sorts = ["endpoint", "methods"]
+
+    if has_domain:
+        headers.append("Host" if host_matching else "Subdomain")
+        sorts.append("domain")
+
+    headers.extend(["Rule"])
+    sorts.extend(["rule"])
+
+    return headers, sorts
+
+def sort_rows(rows, sort):
+    try:
+        return sorted(rows, key=itemgetter(sorts.index(sort)))
+    except ValueError:
+        return rows
+
 @click.option("--all-methods", is_flag=True, help="Show HEAD and OPTIONS methods.")
 @with_appcontext
 def routes_command(sort: str, all_methods: bool) -> None:
+    """Show all registered routes with endpoints and methods."""
+    rules = list(current_app.url_map.iter_rules())
+
+    if not rules:
+        click.echo("No routes were registered.")
+        return
+
+    ignored_methods = set() if all_methods else {"HEAD", "OPTIONS"}
+    host_matching = current_app.url_map.host_matching
+    has_domain = any(rule.host if host_matching else rule.subdomain for rule in rules)
+    
+    rows = get_rules_info(rules, ignored_methods, has_domain, host_matching)
+
+    headers, sorts = get_headers_and_sorts(has_domain, host_matching)
+
+    rows = sort_rows(rows, sort)
+
+    print_table(headers, [["-" * max(len(row[i]) for row in rows) for i in range(len(headers))]] + rows)
+
     """Show all registered routes with endpoints and methods."""
     rules = list(current_app.url_map.iter_rules())
 
